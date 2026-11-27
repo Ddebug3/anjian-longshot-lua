@@ -1,8 +1,0 @@
-name: runner-macos-13
-on:
-  workflow_dispatch:
-jobs:
-  test:
-    runs-on: macos-13
-    steps:
-      - run: sw_vers
