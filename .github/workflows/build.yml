@@ -61,13 +61,28 @@ jobs:
           otool -L longshot.so
           otool -L probe.so
 
+      - name: Build longshot CLI
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          CXX=$(xcrun --sdk iphoneos --find clang++)
+          LIBJPEG=$(find build-jpeg -type f \( -name 'libjpeg.a' -o -name 'libjpeg-static.a' \) -print -quit)
+          test -n "$LIBJPEG"
+          $CXX -arch arm64 -miphoneos-version-min=13.0 -isysroot "$SDK" \
+            -std=c++17 -O2 -I libjpeg-turbo -I build-jpeg \
+            src/longshot_cli.cpp src/jpeg_stitcher.cpp "$LIBJPEG" \
+            -o longshot_cli
+          codesign -s - --force --timestamp=none longshot_cli
+          file longshot_cli
+          otool -L longshot_cli
+
       - name: Package artifacts
         run: |
           mkdir -p out
-          cp longshot.so probe.so out/
+          cp longshot.so probe.so longshot_cli out/
           cp README.md out/ 2>/dev/null || true
           cd out
-          zip -9 ../longshot-lua-ios.zip longshot.so probe.so README.md 2>/dev/null || zip -9 ../longshot-lua-ios.zip longshot.so probe.so
+          zip -9 ../longshot-lua-ios.zip longshot.so probe.so longshot_cli README.md 2>/dev/null || zip -9 ../longshot-lua-ios.zip longshot.so probe.so longshot_cli
 
       - uses: actions/upload-artifact@v4
         with:
