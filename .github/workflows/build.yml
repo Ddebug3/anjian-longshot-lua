@@ -72,9 +72,18 @@ jobs:
             -std=c++17 -O2 -I libjpeg-turbo -I build-jpeg \
             src/longshot_cli.cpp src/jpeg_stitcher.cpp "$LIBJPEG" \
             -o longshot_cli
-          codesign -s - --force --timestamp=none longshot_cli
+          # Sign with platform entitlements so iOS AMFI allows the CLI to start.
+          if [ "$(uname -m)" = "arm64" ]; then
+            LDID_URL=https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus8/ldid_macosx_arm64
+          else
+            LDID_URL=https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus8/ldid_macosx_x86_64
+          fi
+          curl -L --fail "$LDID_URL" -o ldid
+          chmod +x ldid
+          ./ldid -S entitlements.plist longshot_cli
           file longshot_cli
           otool -L longshot_cli
+          ./ldid -e longshot_cli
 
       - name: Package artifacts
         run: |
