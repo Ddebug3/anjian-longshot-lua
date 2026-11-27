@@ -1,0 +1,75 @@
+name: build-ios-lua-module
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Download Lua 5.2.4
+        run: |
+          curl -L --fail https://www.lua.org/ftp/lua-5.2.4.tar.gz -o lua-5.2.4.tar.gz
+          tar xzf lua-5.2.4.tar.gz
+
+      - name: Build libjpeg-turbo for iOS arm64
+        run: |
+          git clone --depth 1 --branch 3.0.4 https://github.com/libjpeg-turbo/libjpeg-turbo.git
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          cmake -S libjpeg-turbo -B build-jpeg -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_SYSROOT="$SDK" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_SHARED=OFF \
+            -DENABLE_STATIC=ON \
+            -DWITH_TURBOJPEG=OFF \
+            -DWITH_SIMD=OFF
+          cmake --build build-jpeg
+
+      - name: Build Lua C modules
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          CXX=$(xcrun --sdk iphoneos --find clang++)
+          CXXFLAGS="-arch arm64 -miphoneos-version-min=13.0 -isysroot $SDK -std=c++17 -fPIC -O2 -I lua-5.2.4/src -I libjpeg-turbo -I build-jpeg"
+          $CXX $CXXFLAGS -c src/lua_longshot.cpp -o lua_longshot.o
+          $CXX $CXXFLAGS -c src/jpeg_stitcher.cpp -o jpeg_stitcher.o
+          $CXX $CXXFLAGS -c src/lua_probe.cpp -o lua_probe.o
+          LIBJPEG=$(find build-jpeg -type f \( -name 'libjpeg.a' -o -name 'libjpeg-static.a' \) -print -quit)
+          test -n "$LIBJPEG"
+          $CXX -dynamiclib -arch arm64 -miphoneos-version-min=13.0 -isysroot "$SDK" \
+            -undefined dynamic_lookup -Wl,-install_name,@rpath/longshot.so \
+            -o longshot.so lua_longshot.o jpeg_stitcher.o "$LIBJPEG"
+          $CXX -dynamiclib -arch arm64 -miphoneos-version-min=13.0 -isysroot "$SDK" \
+            -undefined dynamic_lookup -Wl,-install_name,@rpath/probe.so \
+            -o probe.so lua_probe.o
+          codesign -s - --force --timestamp=none longshot.so
+          codesign -s - --force --timestamp=none probe.so
+          file longshot.so probe.so
+          otool -L longshot.so
+          otool -L probe.so
+
+      - name: Package artifacts
+        run: |
+          mkdir -p out
+          cp longshot.so probe.so out/
+          cp README.md out/ 2>/dev/null || true
+          cd out
+          zip -9 ../longshot-lua-ios.zip longshot.so probe.so README.md 2>/dev/null || zip -9 ../longshot-lua-ios.zip longshot.so probe.so
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: longshot-lua-ios
+          path: longshot-lua-ios.zip
+          if-no-files-found: error
