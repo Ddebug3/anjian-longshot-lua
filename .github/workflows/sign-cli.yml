@@ -1,0 +1,35 @@
+name: sign-longshot-cli
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - longshot_cli.bin
+      - entitlements.plist
+      - .github/workflows/sign-cli.yml
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux ldid
+        run: |
+          curl -L --fail https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus8/ldid_linux_x86_64 -o ldid
+          chmod +x ldid
+
+      - name: Sign Mach-O CLI
+        run: |
+          cp longshot_cli.bin longshot_cli_signed.bin
+          ./ldid -S entitlements.plist longshot_cli_signed.bin
+          ./ldid -e longshot_cli_signed.bin | tee actual-entitlements.plist
+          file longshot_cli_signed.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: longshot-cli-signed
+          path: |
+            longshot_cli_signed.bin
+            actual-entitlements.plist
+          if-no-files-found: error
